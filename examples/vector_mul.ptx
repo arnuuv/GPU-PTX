@@ -1,0 +1,49 @@
+// PTXLab vector_mul
+.version 7.0
+.target sm_70
+.address_size 64
+.visible .entry vector_mul (
+    .param .u64 a,
+    .param .u64 b,
+    .param .u64 c,
+    .param .u32 n
+)
+{
+    .reg .pred %p<1>;
+    .reg .u32 %r<10>;
+    .reg .u64 %rd<9>;
+    .reg .f32 %f<3>;
+entry:
+    mov.u32 %r0, %ctaid.x;
+    mov.u32 %r1, %ntid.x;
+    mul.lo.u32 %r2, %r0, %r1;
+    mov.u32 %r3, %tid.x;
+    add.u32 %r4, %r2, %r3;
+    mov.u32 %r5, %r4;
+    ld.param.u32 %r6, [n];
+    setp.lt.u32 %p0, %r5, %r6;
+    @%p0 bra L_then_0;
+    bra L_else_1;
+L_then_0:
+    ld.param.u64 %rd0, [c];
+    mov.u32 %r7, 4;
+    mul.wide.u32 %rd1, %r5, %r7;
+    add.u64 %rd2, %rd0, %rd1;
+    ld.param.u64 %rd3, [a];
+    mov.u32 %r8, 4;
+    mul.wide.u32 %rd4, %r5, %r8;
+    add.u64 %rd5, %rd3, %rd4;
+    ld.global.f32 %f0, [%rd5];
+    ld.param.u64 %rd6, [b];
+    mov.u32 %r9, 4;
+    mul.wide.u32 %rd7, %r5, %r9;
+    add.u64 %rd8, %rd6, %rd7;
+    ld.global.f32 %f1, [%rd8];
+    mul.rn.f32 %f2, %f0, %f1;
+    st.global.f32 [%rd2], %f2;
+    bra L_join_2;
+L_else_1:
+    bra L_join_2;
+L_join_2:
+    ret;
+}

@@ -1,0 +1,218 @@
+// PTXLab reduce
+.version 7.0
+.target sm_70
+.address_size 64
+// .ptxlab_block 32 1 1
+.visible .entry reduce (
+    .param .u64 src,
+    .param .u64 dst,
+    .param .u32 n,
+    .param .u32 blocks
+)
+{
+    .reg .pred %p<9>;
+    .reg .u32 %r<102>;
+    .reg .u64 %rd<6>;
+    .reg .f32 %f<18>;
+    .shared .align 4 .f32 sdata[32];
+entry:
+    mov.u32 %r0, %tid.x;
+    mov.u32 %r1, %r0;
+    mov.u32 %r2, %ctaid.x;
+    mov.u32 %r3, 32;
+    mul.lo.u32 %r4, %r2, %r3;
+    add.u32 %r5, %r4, %r1;
+    mov.u32 %r6, %r5;
+    ld.param.u32 %r7, [n];
+    setp.lt.u32 %p0, %r6, %r7;
+    @%p0 bra L_then_0;
+    bra L_else_1;
+L_then_0:
+    mov.u32 %r8, sdata;
+    mov.u32 %r9, 4;
+    mul.lo.u32 %r10, %r1, %r9;
+    add.u32 %r11, %r8, %r10;
+    ld.param.u64 %rd0, [src];
+    mov.u32 %r12, 4;
+    mul.wide.u32 %rd1, %r6, %r12;
+    add.u64 %rd2, %rd0, %rd1;
+    ld.global.f32 %f0, [%rd2];
+    st.shared.f32 [%r11], %f0;
+    bra L_join_2;
+L_else_1:
+    mov.u32 %r13, sdata;
+    mov.u32 %r14, 4;
+    mul.lo.u32 %r15, %r1, %r14;
+    add.u32 %r16, %r13, %r15;
+    mov.f32 %f1, 0f00000000;
+    st.shared.f32 [%r16], %f1;
+    bra L_join_2;
+L_join_2:
+    bar.sync 0;
+    mov.u32 %r17, 16;
+    setp.lt.u32 %p1, %r1, %r17;
+    @%p1 bra L_then_3;
+    bra L_else_4;
+L_then_3:
+    mov.u32 %r18, sdata;
+    mov.u32 %r19, 4;
+    mul.lo.u32 %r20, %r1, %r19;
+    add.u32 %r21, %r18, %r20;
+    mov.u32 %r22, sdata;
+    mov.u32 %r23, 4;
+    mul.lo.u32 %r24, %r1, %r23;
+    add.u32 %r25, %r22, %r24;
+    ld.shared.f32 %f2, [%r25];
+    mov.u32 %r26, 16;
+    add.u32 %r27, %r1, %r26;
+    mov.u32 %r28, sdata;
+    mov.u32 %r29, 4;
+    mul.lo.u32 %r30, %r27, %r29;
+    add.u32 %r31, %r28, %r30;
+    ld.shared.f32 %f3, [%r31];
+    add.rn.f32 %f4, %f2, %f3;
+    st.shared.f32 [%r21], %f4;
+    bra L_join_5;
+L_else_4:
+    bra L_join_5;
+L_join_5:
+    bar.sync 0;
+    mov.u32 %r32, 8;
+    setp.lt.u32 %p2, %r1, %r32;
+    @%p2 bra L_then_6;
+    bra L_else_7;
+L_then_6:
+    mov.u32 %r33, sdata;
+    mov.u32 %r34, 4;
+    mul.lo.u32 %r35, %r1, %r34;
+    add.u32 %r36, %r33, %r35;
+    mov.u32 %r37, sdata;
+    mov.u32 %r38, 4;
+    mul.lo.u32 %r39, %r1, %r38;
+    add.u32 %r40, %r37, %r39;
+    ld.shared.f32 %f5, [%r40];
+    mov.u32 %r41, 8;
+    add.u32 %r42, %r1, %r41;
+    mov.u32 %r43, sdata;
+    mov.u32 %r44, 4;
+    mul.lo.u32 %r45, %r42, %r44;
+    add.u32 %r46, %r43, %r45;
+    ld.shared.f32 %f6, [%r46];
+    add.rn.f32 %f7, %f5, %f6;
+    st.shared.f32 [%r36], %f7;
+    bra L_join_8;
+L_else_7:
+    bra L_join_8;
+L_join_8:
+    bar.sync 0;
+    mov.u32 %r47, 4;
+    setp.lt.u32 %p3, %r1, %r47;
+    @%p3 bra L_then_9;
+    bra L_else_10;
+L_then_9:
+    mov.u32 %r48, sdata;
+    mov.u32 %r49, 4;
+    mul.lo.u32 %r50, %r1, %r49;
+    add.u32 %r51, %r48, %r50;
+    mov.u32 %r52, sdata;
+    mov.u32 %r53, 4;
+    mul.lo.u32 %r54, %r1, %r53;
+    add.u32 %r55, %r52, %r54;
+    ld.shared.f32 %f8, [%r55];
+    mov.u32 %r56, 4;
+    add.u32 %r57, %r1, %r56;
+    mov.u32 %r58, sdata;
+    mov.u32 %r59, 4;
+    mul.lo.u32 %r60, %r57, %r59;
+    add.u32 %r61, %r58, %r60;
+    ld.shared.f32 %f9, [%r61];
+    add.rn.f32 %f10, %f8, %f9;
+    st.shared.f32 [%r51], %f10;
+    bra L_join_11;
+L_else_10:
+    bra L_join_11;
+L_join_11:
+    bar.sync 0;
+    mov.u32 %r62, 2;
+    setp.lt.u32 %p4, %r1, %r62;
+    @%p4 bra L_then_12;
+    bra L_else_13;
+L_then_12:
+    mov.u32 %r63, sdata;
+    mov.u32 %r64, 4;
+    mul.lo.u32 %r65, %r1, %r64;
+    add.u32 %r66, %r63, %r65;
+    mov.u32 %r67, sdata;
+    mov.u32 %r68, 4;
+    mul.lo.u32 %r69, %r1, %r68;
+    add.u32 %r70, %r67, %r69;
+    ld.shared.f32 %f11, [%r70];
+    mov.u32 %r71, 2;
+    add.u32 %r72, %r1, %r71;
+    mov.u32 %r73, sdata;
+    mov.u32 %r74, 4;
+    mul.lo.u32 %r75, %r72, %r74;
+    add.u32 %r76, %r73, %r75;
+    ld.shared.f32 %f12, [%r76];
+    add.rn.f32 %f13, %f11, %f12;
+    st.shared.f32 [%r66], %f13;
+    bra L_join_14;
+L_else_13:
+    bra L_join_14;
+L_join_14:
+    bar.sync 0;
+    mov.u32 %r77, 1;
+    setp.lt.u32 %p5, %r1, %r77;
+    @%p5 bra L_then_15;
+    bra L_else_16;
+L_then_15:
+    mov.u32 %r78, sdata;
+    mov.u32 %r79, 4;
+    mul.lo.u32 %r80, %r1, %r79;
+    add.u32 %r81, %r78, %r80;
+    mov.u32 %r82, sdata;
+    mov.u32 %r83, 4;
+    mul.lo.u32 %r84, %r1, %r83;
+    add.u32 %r85, %r82, %r84;
+    ld.shared.f32 %f14, [%r85];
+    mov.u32 %r86, 1;
+    add.u32 %r87, %r1, %r86;
+    mov.u32 %r88, sdata;
+    mov.u32 %r89, 4;
+    mul.lo.u32 %r90, %r87, %r89;
+    add.u32 %r91, %r88, %r90;
+    ld.shared.f32 %f15, [%r91];
+    add.rn.f32 %f16, %f14, %f15;
+    st.shared.f32 [%r81], %f16;
+    bra L_join_17;
+L_else_16:
+    bra L_join_17;
+L_join_17:
+    bar.sync 0;
+    mov.u32 %r92, 0;
+    setp.eq.u32 %p6, %r1, %r92;
+    mov.u32 %r93, %ctaid.x;
+    ld.param.u32 %r94, [blocks];
+    setp.lt.u32 %p7, %r93, %r94;
+    and.pred %p8, %p6, %p7;
+    @%p8 bra L_then_18;
+    bra L_else_19;
+L_then_18:
+    mov.u32 %r95, %ctaid.x;
+    ld.param.u64 %rd3, [dst];
+    mov.u32 %r96, 4;
+    mul.wide.u32 %rd4, %r95, %r96;
+    add.u64 %rd5, %rd3, %rd4;
+    mov.u32 %r97, 0;
+    mov.u32 %r98, sdata;
+    mov.u32 %r99, 4;
+    mul.lo.u32 %r100, %r97, %r99;
+    add.u32 %r101, %r98, %r100;
+    ld.shared.f32 %f17, [%r101];
+    st.global.f32 [%rd5], %f17;
+    bra L_join_20;
+L_else_19:
+    bra L_join_20;
+L_join_20:
+    ret;
+}
