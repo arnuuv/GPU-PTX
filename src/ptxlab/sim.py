@@ -33,6 +33,8 @@ Functional semantics, deliberately narrower than an NVIDIA GPU:
 
 from __future__ import annotations
 
+import ctypes
+import ctypes.util
 import math
 import struct
 import sys
@@ -670,8 +672,34 @@ def _fmul(left: object, right: object) -> float:
     return float(np.multiply(np.float32(left), np.float32(right), dtype=np.float32))
 
 
+def _load_fmaf():
+    for name in (ctypes.util.find_library("m"), "libm.so.6", "libSystem.B.dylib"):
+        if not name:
+            continue
+        try:
+            lib = ctypes.CDLL(name)
+            fn = lib.fmaf
+            fn.argtypes = (ctypes.c_float, ctypes.c_float, ctypes.c_float)
+            fn.restype = ctypes.c_float
+            return fn
+        except (OSError, AttributeError):
+            continue
+    return None
+
+
+_FMAF = _load_fmaf()
+
+
 def _fma(left: object, mid: object, right: object) -> float:
-    return float(np.float32(math.fma(float(np.float32(left)), float(np.float32(mid)), float(np.float32(right)))))
+    a = float(np.float32(left))
+    b = float(np.float32(mid))
+    c = float(np.float32(right))
+    if _FMAF is not None:
+        return float(np.float32(_FMAF(a, b, c)))
+    fn = getattr(math, "fma", None)
+    if fn is not None:
+        return float(np.float32(fn(a, b, c)))
+    return float(np.float32(a * b + c))
 
 
 def _fdiv(left: object, right: object) -> float:

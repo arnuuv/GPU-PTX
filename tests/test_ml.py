@@ -1,7 +1,5 @@
 """Half precision, vector loads, atomics, and row ML kernels."""
 
-import math
-
 import numpy as np
 
 from ptxlab.driver import execute_kernel
@@ -45,7 +43,7 @@ def test_fma_matches_numpy_fma() -> None:
         block=(4, 1, 1),
         args={"x": x, "y": y, "z": z, "alpha": float(alpha), "n": 4},
     )
-    expected = np.vectorize(lambda a, b: np.float32(math.fma(float(alpha), float(a), float(b))))(x, y)
+    expected = np.float32(alpha.astype(np.float64) * x.astype(np.float64) + y.astype(np.float64))
     np.testing.assert_array_equal(z, expected)
 
 
