@@ -140,8 +140,8 @@ def test_masked_threads_do_not_fault() -> None:
 
 def test_unmasked_oob_load_faults() -> None:
     k = KernelBuilder("oob")
-    a = k.array("a", DType.F32, ("n",))
-    c = k.array("c", DType.F32, ("n",))
+    a = k.array("a", DType.F32, (4,))
+    c = k.array("c", DType.F32, (4,))
     i = k.let("i", k.gid("x"))
     k.store(c, (i,), k.load(a, (i,)))
     a = np.ones(4, np.float32)
