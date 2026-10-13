@@ -41,6 +41,9 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("test", help="run the pytest suite")
     bench_p = sub.add_parser("bench", help="run benchmarks")
     bench_p.add_argument("--backend", choices=("cpu", "cuda"), default="cpu")
+    sub.add_parser("autotune", help="correctness search over vector-add block sizes")
+    report_p = sub.add_parser("report", help="write an interpreter/model/GPU report")
+    report_p.add_argument("-o", "--output", type=Path, default=Path("benchmarks/results/report.json"))
     dash = sub.add_parser("dashboard", help="open the local Streamlit viewer")
     dash.add_argument("--port", type=int, default=8501)
 
@@ -57,6 +60,10 @@ def main(argv: list[str] | None = None) -> int:
         return _test()
     if args.command == "bench":
         return _bench(args.backend)
+    if args.command == "autotune":
+        return _autotune()
+    if args.command == "report":
+        return _report(args.output)
     if args.command == "dashboard":
         return _dashboard(args.port)
     parser.error(f"unknown command {args.command}")
@@ -112,6 +119,26 @@ def _simulate(ptx_path: Path, launch_path: Path | None) -> int:
                 return 1
     if compare and worst == 0.0:
         print("reference match: exact on floating outputs")
+    return 0
+
+
+def _autotune() -> int:
+    import json
+
+    from ptxlab.autotune import search_vector_add
+
+    print(json.dumps(search_vector_add(), indent=2))
+    return 0
+
+
+def _report(path: Path) -> int:
+    from ptxlab.benchreport import write_report
+
+    report = write_report(path)
+    print(f"wrote {path}")
+    print(f"interpreter max_abs_error {report['interpreter']['max_abs_error']}")
+    print(f"analytical estimated_cycles {report['analytical']['estimated_cycles']}")
+    print(f"gpu measured {report['gpu']['measured']}")
     return 0
 
 
