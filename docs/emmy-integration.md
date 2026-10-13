@@ -58,11 +58,12 @@ A future adapter would need to:
 3. Live next to `backend/cuda` as a separate backend. The Rust runtime's cubin loader would stay on the nvcc path. A PTX file would still need `ptxas` or a driver JIT before a GPU launch. PTXLab's CPU simulator is not that launch path.
 4. Keep launch geometry explicit. Emmy's `grid` / `block` entries are `GridDimSpec` values that may be symbolic expressions evaluated at launch. PTXLab launches are concrete integer triples.
 
-None of those steps is implemented against Emmy's types. The only code in this repository is `ptxlab.emmy_adapter`, which accepts a `EmmyKernelDescriptor` defined here: a PTXLab `Kernel`, a name, and a concrete grid and block. `emit_ptx` and `simulate` call PTXLab. The module does not import `emmy`. Its assumptions are the `ASSUMPTIONS` tuple on the adapter, and tests check that the source never imports Emmy.
+`ptxlab.emmy_lower.lower_emmy_graph` does read Emmy objects, and only when the Emmy tree is on `PYTHONPATH`. It accepts one `ElementwiseOp` (`add`, `multiply`, `subtract`) on rank-1 static `f32` vectors, or one `ReduceOp` `sum` on axis 0 whose length is a power of two up to 1024. The tests in `tests/test_emmy_lower.py` were run against commit `02cab261` after `pip install frozendict`. They skip when `emmy` cannot be imported. `tanh` and every other op raise `EmmyLowerError`.
+
+`ptxlab.emmy_adapter` is still a separate, local descriptor. It does not import Emmy. Its assumptions are the `ASSUMPTIONS` tuple, and tests check that the adapter source never imports Emmy.
 
 ## What was not verified
 
-* No `emmy` package was installed or executed for this note.
-* KernelOp constructors were read from the public tree at the commit above. They were not called.
+* `ElementwiseOp` and `ReduceOp` were constructed and lowered. `KernelOp`, `TileOp`, and `CudaOp` were not.
 * Nothing here was checked against Emmy's cubin cache, golden benches, or runtime ABI.
 * Agreement between a future extractor and `KernelOp.render` is an open question, not a result.

@@ -51,3 +51,7 @@ class CudaUnavailable(PtxLabError):
 
 class CudaLaunchError(PtxLabError):
     """The CUDA driver rejected a real-device launch."""
+
+
+class EmmyLowerError(PtxLabError):
+    """An Emmy graph is outside the subset this repository lowers."""
