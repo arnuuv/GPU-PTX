@@ -57,6 +57,22 @@ ld.global.f32 %f, [%rd_addr];
 
 Row-major index linearisation (`i0 * stride + i1`) happens in `u32` before the widening multiply. The bounds predicate is tested before the load or store, so out-of-range threads take the other branch and do not issue the memory operation.
 
+## Added after the initial subset
+
+These are accepted by the parser and interpreted. `ex2.approx.ftz.f32` in the interpreter is flushed `exp2` in binary32, which is not NVIDIA's special-function approximation.
+
+| IR | PTX |
+| --- | --- |
+| `fma` | `fma.rn.f32` |
+| `div` | `div.rn.f32` |
+| `sqrt` | `sqrt.rn.f32` |
+| `max` | `max.f32` (a NaN operand yields the other value in the interpreter) |
+| `ex2` | `ex2.approx.ftz.f32` |
+| `cvt` | `cvt.f32.f16`, `cvt.rn.f16.f32` |
+| `ld_global_v4` / `st_global_v4` | `ld.global.v4.f32`, `st.global.v4.f32`, 16-byte aligned |
+| `atom_add` | `atom.add.u32`, `atom.add.f32` |
+| f16 load/store | `ld.global.f16`, `st.global.f16` |
+
 ## Not in the subset
 
-`ld.global.v2` / `v4`, `atom`, `shfl`, `mma`, `cp.async`, `ldmatrix`, texture operations, predicates on `bar.sync`, and 16-bit floats. Emmy's CUDA renderer uses several of those as inline `asm` inside C++; they are not accepted here.
+`ld.global.v2`, `shfl`, `mma`, `cp.async`, `ldmatrix`, BF16, and predicates on `bar.sync`. Emmy's CUDA renderer uses several of those as inline `asm` inside C++; they are not accepted here.

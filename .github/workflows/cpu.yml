@@ -1,0 +1,32 @@
+name: cpu
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e ".[dev]"
+      - run: python -m pytest -q
+
+  emmy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e ".[dev]" frozendict
+      - name: Fetch the inspected Emmy commit
+        run: |
+          git init /tmp/emmy
+          git -C /tmp/emmy remote add origin https://github.com/cloudrift-ai/emmy.git
+          git -C /tmp/emmy fetch --depth 1 origin 02cab261fdd89fd261441f2d02ddb400e94ead3a
+          git -C /tmp/emmy checkout FETCH_HEAD
+      - run: PYTHONPATH=/tmp/emmy python -m pytest -q tests/test_emmy_lower.py

@@ -23,10 +23,19 @@ The viewer needs an extra: `pip install -e ".[dev,viz]"`.
 ```bash
 ptxlab compile examples/vector_add.py
 ptxlab simulate examples/vector_add.ptx
+ptxlab validate examples/vector_add.py --backend cpu
+ptxlab run examples/vector_add.py --backend cuda
 ptxlab test
 ptxlab bench
+ptxlab bench --backend cuda
+ptxlab autotune
+ptxlab report
 ptxlab dashboard
 ```
+
+`validate` and `run` accept `--backend cpu` or `--backend cuda`. On a machine without `libcuda`, the CUDA backend exits 2 and does not print interpreter numbers as device timings. See [docs/cuda-runner.md](docs/cuda-runner.md).
+
+`autotune` checks vector-add block sizes for exact agreement with NumPy. It ranks them only when a GPU measurement exists. `report` writes `benchmarks/results/report.json` with separate interpreter, analytical, and GPU sections.
 
 `compile` writes `examples/vector_add.ptx` and a `.launch.json` built from the example's `sample()`. `simulate` runs that launch on the CPU interpreter and prints the functional error against the reference stored in the launch file.
 
@@ -104,10 +113,12 @@ docs/           architecture, PTX subset, simulator, Emmy notes
 ## Limits
 
 * The simulator executes this subset only. It will not run general CUDA or Emmy's inline PTX.
-* No half precision, no vector loads, no atomics, no shuffles, no tensor cores, no TMA, no `cp.async`.
+* f16 values are loaded and stored, then added in f32. BF16, warp shuffle, tensor cores, TMA, and `cp.async` are absent.
+* `ex2.approx.ftz.f32` is flushed `exp2` in the interpreter, not a GPU special-function result.
 * Shared memory and barriers are block-local. A divergent barrier is an error.
-* Reduction block sizes are compile-time powers of two. The matmul tile is a compile-time square, at most 32.
+* Reduction block sizes are compile-time powers of two. The matmul tile is a compile-time square, at most 32. Layer norm, RMSNorm, and softmax use one power-of-two block per row.
 * Register occupancy counts predicate registers as full registers.
 * No measured device timeline. `nvcc` and `ptxas` were not on `PATH` when this tree was built.
+* Emmy lowering covers one elementwise pattern and one power-of-two sum. It is not a KernelOp backend.
 
 More detail: [docs/architecture.md](docs/architecture.md), [docs/ptx-subset.md](docs/ptx-subset.md), [docs/simulation-assumptions.md](docs/simulation-assumptions.md), [docs/emmy-integration.md](docs/emmy-integration.md).

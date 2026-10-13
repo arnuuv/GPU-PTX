@@ -1,36 +1,37 @@
 # Competition readiness
 
-Audit of PTXLab before the October 2026 compiler upgrade. The RiftStack Emmy Hackathon runs 21–27 October 2026. Its problems and judging criteria were not published when this file was written. Nothing here predicts a winning submission.
+Updated after the compiler upgrade. The RiftStack Emmy Hackathon is 21–27 October 2026. Its problems and judging criteria were not published. This tree does not implement an unreleased task.
 
-Baseline before that upgrade: `51 passed, 1 skipped` (`tests/test_cuda_optional.py` skips because `ptxas` is not installed). Host: macOS, no `nvcc`, no `ptxas`, no `libcuda`.
+Emmy was executed, for the narrow lowerer only, at `02cab261fdd89fd261441f2d02ddb400e94ead3a`. See [emmy-integration.md](emmy-integration.md).
 
-Emmy was inspected at `02cab261fdd89fd261441f2d02ddb400e94ead3a`. See [emmy-integration.md](emmy-integration.md).
+## Verified on this machine
 
-## Verified on the CPU
+`pytest` without Emmy on `PYTHONPATH`: 70 passed, 2 skipped. The skips are `ptxas` (not installed) and the Emmy lowerer (the package is not installed). With `PYTHONPATH` pointed at that Emmy checkout, `tests/test_emmy_lower.py` passed: an `ElementwiseOp("add")` graph and a length-32 `ReduceOp("sum")` matched the PTXLab interpreter.
 
-- Typed AST to three-address IR, validator, and text dump.
-- PTX emission for `.version 7.0`, `.target sm_70`, `.address_size 64`, with a checked target table.
-- Parser that accepts that subset and rejects other opcodes.
-- Functional interpreter: warps of 32, post-dominator reconvergence, global and shared memory, `bar.sync`.
-- Kernels with exact `f32` agreement against their references on the tested shapes: vector add, vector multiply, SAXPY, power-of-two block reduction, tiled GEMM.
-- Bounds checks that avoid out-of-range accesses, and an unmasked access that faults.
-- Analytical cycle, transaction, and occupancy model. Those numbers are estimates.
+Also verified:
+
+- IR validation, lowering, greedy register allocation, and the optimisation passes in `src/ptxlab/opt.py`.
+- Constant folding, integer strength reduction (`x * 2` to `x + x`), CSE of the address scale, copy propagation, DCE, LICM, optional unrolling, and list scheduling. Equivalence is against the interpreter. No pass has a measured GPU speedup.
+- Vector add, multiply, SAXPY, `fma.rn.f32` SAXPY, f16 add via f32, aligned `v4` add, integer `atom.add.u32`, block reduction, tiled GEMM, layer norm, RMSNorm, and softmax.
+- Static unit-stride and strided classifications in `ptxlab.analysis`.
+- CUDA driver detection. `libcuda` is absent, so `ptxlab validate --backend cuda` exits 2 and records that no GPU measurement was collected.
+- Analytical cycle estimates remain labelled as estimates. `ptxlab report` writes interpreter, analytical, and GPU sections; the GPU latency is null here.
 
 ## Not verified
 
-- No PTX file has been assembled with `ptxas`.
-- No kernel has been launched on an NVIDIA GPU.
-- No CUDA driver timing, register-usage report, or Compute Sanitizer run exists.
-- The Emmy adapter does not read Emmy IR. It wraps PTXLab's own kernel type.
-- There is no CI workflow.
+- No kernel was assembled by `ptxas`.
+- No kernel was launched on an NVIDIA GPU.
+- No Compute Sanitizer run.
+- The Docker image in `docker/Dockerfile` was not built.
+- Autotune did not rank candidates, because ranking requires device timings.
+- `ex2.approx.ftz.f32` was not compared with a GPU special-function unit. The interpreter uses flushed `exp2`.
 
-## Unsupported or incomplete
+## Still unsupported
 
-- One virtual register becomes one physical register. No folding, DCE, CSE, or scheduling.
-- No `fma`, `div`, `sqrt`, `ex2`, atomics, vector loads, half precision, warp shuffle, `mma`, `ldmatrix`, or `cp.async`.
-- No layer norm, RMSNorm, or softmax.
-- Autotuning is absent. Simulator cycles must not be reported as speedups.
-- BF16, tensor-core MMA, and asynchronous copies are out of the subset.
-- The interpreter runs blocks one at a time and is not a performance model of a GPU.
+- Warp shuffle, BF16, `mma`, `ldmatrix`, `cp.async`, and `ld.global.v2`.
+- Emmy graphs other than the two patterns above. No `KernelOp`, TMA, or symbolic shape is lowered.
+- A median GPU benchmark table. The CUDA path times `cuLaunchKernel` plus `cuCtxSynchronize` only when a device exists.
 
-This file is updated again after the upgrade so the lists above are not left as the final claim.
+## How to run the missing device checks
+
+Follow [cuda-runner.md](cuda-runner.md). The optional GitHub workflow `.github/workflows/gpu.yml` is `workflow_dispatch` and expects a self-hosted runner labelled `nvidia`.
