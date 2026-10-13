@@ -64,29 +64,29 @@ class Expr:
         return _cmp("ne", self, other)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)
 class ConstExpr(Expr):
     value: int | float
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)
 class VarExpr(Expr):
     name: str
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)
 class ScalarExpr(Expr):
     name: str
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)
 class BinExpr(Expr):
     op: str
     left: Expr
     right: Expr
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)
 class CmpExpr(Expr):
     op: str
     left: Expr
@@ -94,38 +94,38 @@ class CmpExpr(Expr):
     operand_dtype: DType
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)
 class PredExpr(Expr):
     op: str
     args: tuple[Expr, ...]
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)
 class IndexExpr(Expr):
     kind: str
     dim: str
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)
 class LoadExpr(Expr):
     array: str
     indices: tuple[Expr, ...]
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)
 class LoadSharedExpr(Expr):
     buffer: str
     indices: tuple[Expr, ...]
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)
 class MadExpr(Expr):
     a: Expr
     b: Expr
     c: Expr
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)
 class ShrExpr(Expr):
     value: Expr
     amount: Expr
