@@ -1,0 +1,45 @@
+{
+  "grid": [
+    3,
+    1,
+    1
+  ],
+  "block": [
+    32,
+    1,
+    1
+  ],
+  "args": {
+    "src": {
+      "dtype": "f32",
+      "shape": [
+        80
+      ],
+      "b64": "a54CQASQI8ANEdY+WVkRv6bB576BxVy+dEcBwK5/bb6bfl2/BqxUQJs0Zz4GjLS+6ASQvhYFK78sD4e/ERfIvozB9j5mR3S+rS91P+6YTL7/u8Y8dd3FPwmMCz+sVgG/JDo7vttfCj/3sPc/rQuKvnJneb7QS4A/Cu9iv1tclb4T7mE/0pEUPxxtuz32iys/nAA1wC+6gj9Hq3W/VpXVv0yKjT7pVjM/j7jjvqvHib+/A9Y8kA1YvaTqsz8hVj8/nHdGPv9Jjj+idFK+wQdtv9iEFT89IRU/HPxbviVmSL9Sp2o+95sfwASsMD+flPs+EsbRv9FNez08z3a/PdlBP8wvAsBQHGq/Cac1P/MElD/DHArAFP/+vkDypz6X9Ru/GZrLPx56mL82hbU+JzKGv5j2sz/rXbG8oJe+vnzt278="
+    },
+    "dst": {
+      "dtype": "f32",
+      "shape": [
+        3
+      ],
+      "b64": "AAAAAAAAAAAAAAAA"
+    },
+    "n": {
+      "dtype": "u32",
+      "value": 80
+    },
+    "blocks": {
+      "dtype": "u32",
+      "value": 3
+    }
+  },
+  "compare": {
+    "dst": {
+      "dtype": "f32",
+      "shape": [
+        3
+      ],
+      "b64": "jewQP6DLScD9p6DA"
+    }
+  }
+}
