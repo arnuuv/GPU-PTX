@@ -2,7 +2,7 @@
 
 Inspected repository: [cloudrift-ai/emmy](https://github.com/cloudrift-ai/emmy) at `02cab261fdd89fd261441f2d02ddb400e94ead3a` (`02cab26`, 2026-10-13, "Refresh golden-bench kernel results and recover missing measurements"). PTXLab does not vendor that tree and does not modify it.
 
-This note is preparation for reading Emmy's compiler. It is not an implementation of an unreleased hackathon task, and it is not a claim that PTXLab is an Emmy backend.
+This note records how Emmy lowers kernels. PTXLab is not an Emmy backend.
 
 ## What the compiler actually lowers to
 

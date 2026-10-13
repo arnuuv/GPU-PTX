@@ -2,9 +2,9 @@
 
 PTXLab is a small, tested compiler from a typed kernel language to a documented subset of NVIDIA PTX, plus a CPU interpreter for exactly the instructions that compiler emits. An optional analytical model estimates cycles and occupancy. Those estimates are not GPU measurements and are not speedups.
 
-This repository is background work for reading the RiftStack Emmy compiler. It does not implement an unreleased hackathon task. Emmy's CUDA backend emits `__global__` CUDA C and cubins, not PTX; see [docs/emmy-integration.md](docs/emmy-integration.md).
+Emmy's CUDA backend emits `__global__` CUDA C and cubins, not PTX. See [docs/emmy-integration.md](docs/emmy-integration.md).
 
-References: [Emmy](https://github.com/cloudrift-ai/emmy), [PTX ISA](https://docs.nvidia.com/cuda/parallel-thread-execution/index.html), [CUDA C programming guide](https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html), [RiftStack hackathon](https://riftstack.ai/hackathon).
+References: [Emmy](https://github.com/cloudrift-ai/emmy), [PTX ISA](https://docs.nvidia.com/cuda/parallel-thread-execution/index.html), [CUDA C programming guide](https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html).
 
 ## Setup
 
