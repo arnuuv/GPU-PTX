@@ -9,12 +9,19 @@ from ptxlab.dtype import DType
 from ptxlab.emit import emit
 from ptxlab.errors import LaunchError
 from ptxlab.lower import lower
+from ptxlab.opt import OptimizeConfig, optimize
 from ptxlab.parse import parse
 from ptxlab.sim import SimResult, simulate
 
 
-def compile_kernel(kernel: Kernel) -> str:
-    return emit(lower(kernel))
+def compile_kernel(
+    kernel: Kernel,
+    *,
+    config: OptimizeConfig | None = None,
+    allocation: str = "greedy",
+) -> str:
+    ir, _notes = optimize(lower(kernel), config if config is not None else OptimizeConfig())
+    return emit(ir, allocation=allocation)
 
 
 def execute_kernel(

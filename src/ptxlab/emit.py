@@ -47,6 +47,16 @@ class _Alloc:
         self.names: dict[str, str] = {}
         self.counts: dict[DType, int] = {dtype: 0 for dtype in DType}
 
+    def preload(self, mapping: dict[str, str]) -> None:
+        self.names.update(mapping)
+        for physical in mapping.values():
+            for dtype in DType:
+                prefix = dtype.ptx_reg_prefix
+                if physical.startswith(prefix) and physical.removeprefix(prefix).isdigit():
+                    index = int(physical.removeprefix(prefix))
+                    self.counts[dtype] = max(self.counts[dtype], index + 1)
+                    break
+
     def reg(self, reg: VReg) -> str:
         existing = self.names.get(reg.name)
         if existing is not None:
@@ -58,9 +68,15 @@ class _Alloc:
         return physical
 
 
-def emit(kernel: KernelIR) -> str:
+def emit(kernel: KernelIR, *, allocation: str = "greedy") -> str:
     validate(kernel)
     alloc = _Alloc()
+    if allocation == "greedy":
+        from ptxlab.regalloc import greedy_map
+
+        alloc.preload(greedy_map(kernel))
+    elif allocation != "naive":
+        raise EmitError(f"unknown allocation mode {allocation}")
     body: list[str] = []
     for block in kernel.blocks:
         body.append(f"{block.label}:")
