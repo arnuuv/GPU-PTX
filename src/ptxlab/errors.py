@@ -43,3 +43,11 @@ class DivergentBarrierError(PtxLabError):
 
 class SimulationError(PtxLabError):
     """Functional simulation could not continue."""
+
+
+class CudaUnavailable(PtxLabError):
+    """The NVIDIA driver or a GPU is not available on this host."""
+
+
+class CudaLaunchError(PtxLabError):
+    """The CUDA driver rejected a real-device launch."""
