@@ -24,6 +24,12 @@ IR_PTX_MNEMONIC: dict[Op, str] = {
     Op.MUL: "mul",
     Op.MUL_WIDE: "mul.wide",
     Op.MAD_LO: "mad.lo",
+    Op.FMA: "fma",
+    Op.DIV: "div",
+    Op.SQRT: "sqrt",
+    Op.MAX: "max",
+    Op.EX2: "ex2",
+    Op.CVT: "cvt",
     Op.SHR: "shr",
     Op.CMP: "setp",
     Op.AND_PRED: "and.pred",
@@ -35,6 +41,9 @@ IR_PTX_MNEMONIC: dict[Op, str] = {
     Op.LD_PARAM: "ld.param",
     Op.LD_GLOBAL: "ld.global",
     Op.ST_GLOBAL: "st.global",
+    Op.LD_GLOBAL_V4: "ld.global.v4",
+    Op.ST_GLOBAL_V4: "st.global.v4",
+    Op.ATOM_ADD: "atom.add",
     Op.SHARED_BASE: "mov",
     Op.LD_SHARED: "ld.shared",
     Op.ST_SHARED: "st.shared",
@@ -102,7 +111,7 @@ def _header(kernel: KernelIR, alloc: _Alloc) -> list[str]:
         lines.append(f"    .param {kind} {param.name}{comma}")
     lines.append(")")
     lines.append("{")
-    for dtype in (DType.PRED, DType.U32, DType.S32, DType.U64, DType.F32):
+    for dtype in (DType.PRED, DType.U32, DType.S32, DType.U64, DType.F32, DType.F16):
         count = alloc.counts[dtype]
         if count:
             lines.append(f"    .reg {dtype.ptx_reg_kind} {dtype.ptx_reg_prefix}<{count}>;")
@@ -187,6 +196,49 @@ def _render(instr: Instr, alloc: _Alloc) -> str:
         addr, value = instr.args
         assert isinstance(addr, VReg) and isinstance(value, VReg)
         return f"st.shared.{value.dtype.value} [{alloc.reg(addr)}], {alloc.reg(value)}"
+    if op is Op.FMA:
+        assert isinstance(instr.dst, VReg)
+        a, b, c = instr.args
+        assert isinstance(a, VReg) and isinstance(b, VReg) and isinstance(c, VReg)
+        return f"fma.rn.f32 {alloc.reg(instr.dst)}, {alloc.reg(a)}, {alloc.reg(b)}, {alloc.reg(c)}"
+    if op is Op.DIV:
+        assert isinstance(instr.dst, VReg)
+        left, right = instr.args
+        assert isinstance(left, VReg) and isinstance(right, VReg)
+        return f"div.rn.f32 {alloc.reg(instr.dst)}, {alloc.reg(left)}, {alloc.reg(right)}"
+    if op is Op.SQRT:
+        assert isinstance(instr.dst, VReg) and isinstance(instr.args[0], VReg)
+        return f"sqrt.rn.f32 {alloc.reg(instr.dst)}, {alloc.reg(instr.args[0])}"
+    if op is Op.MAX:
+        assert isinstance(instr.dst, VReg)
+        left, right = instr.args
+        assert isinstance(left, VReg) and isinstance(right, VReg)
+        return f"max.f32 {alloc.reg(instr.dst)}, {alloc.reg(left)}, {alloc.reg(right)}"
+    if op is Op.EX2:
+        assert isinstance(instr.dst, VReg) and isinstance(instr.args[0], VReg)
+        return f"ex2.approx.ftz.f32 {alloc.reg(instr.dst)}, {alloc.reg(instr.args[0])}"
+    if op is Op.CVT:
+        assert isinstance(instr.dst, VReg) and isinstance(instr.args[0], VReg)
+        src = instr.args[0]
+        if instr.dst.dtype is DType.F32 and src.dtype is DType.F16:
+            return f"cvt.f32.f16 {alloc.reg(instr.dst)}, {alloc.reg(src)}"
+        if instr.dst.dtype is DType.F16 and src.dtype is DType.F32:
+            return f"cvt.rn.f16.f32 {alloc.reg(instr.dst)}, {alloc.reg(src)}"
+        raise EmitError("cvt only converts between f16 and f32")
+    if op is Op.LD_GLOBAL_V4:
+        assert isinstance(instr.dst, VReg) and isinstance(instr.args[0], VReg)
+        regs = ", ".join(alloc.reg(reg) for reg in (instr.dst, *instr.extra_dsts))
+        return f"ld.global.v4.f32 {{{regs}}}, [{alloc.reg(instr.args[0])}]"
+    if op is Op.ST_GLOBAL_V4:
+        addr, v0, v1, v2, v3 = instr.args
+        assert isinstance(addr, VReg)
+        values = ", ".join(alloc.reg(reg) for reg in (v0, v1, v2, v3))  # type: ignore[arg-type]
+        return f"st.global.v4.f32 [{alloc.reg(addr)}], {{{values}}}"
+    if op is Op.ATOM_ADD:
+        assert isinstance(instr.dst, VReg)
+        addr, value = instr.args
+        assert isinstance(addr, VReg) and isinstance(value, VReg)
+        return f"atom.add.{value.dtype.value} {alloc.reg(instr.dst)}, [{alloc.reg(addr)}], {alloc.reg(value)}"
     if op is Op.BAR:
         return f"bar.sync {instr.args[0]}"
     raise EmitError(f"cannot emit {op}")

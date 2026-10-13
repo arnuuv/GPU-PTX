@@ -44,7 +44,7 @@ def validate(kernel: KernelIR) -> None:
         if not _IDENT.match(name):
             raise IrError(f"invalid symbol name {name!r}")
     for param in kernel.params:
-        if param.is_pointer and param.dtype not in (DType.F32, DType.S32, DType.U32):
+        if param.is_pointer and param.dtype not in (DType.F32, DType.F16, DType.S32, DType.U32):
             raise IrError(f"pointer parameter {param.name} has unsupported element type {param.dtype}")
         if not param.is_pointer and param.dtype not in (DType.F32, DType.S32, DType.U32):
             raise IrError(f"scalar parameter {param.name} has unsupported type {param.dtype}")
@@ -203,8 +203,8 @@ def _check_instr(
     if op is Op.LD_GLOBAL:
         dst, addr = _two_regs(instr)
         _expect(addr, DType.U64, "ld.global")
-        if dst.dtype not in (DType.F32, DType.S32, DType.U32):
-            raise IrError("ld.global supports f32, s32, and u32")
+        if dst.dtype not in (DType.F32, DType.F16, DType.S32, DType.U32):
+            raise IrError("ld.global supports f32, f16, s32, and u32")
         _use(types, defined, addr)
         _define(types, defined, dst)
         return
@@ -215,8 +215,8 @@ def _check_instr(
         if not isinstance(addr, VReg) or not isinstance(value, VReg):
             raise IrError("st.global operands must be registers")
         _expect(addr, DType.U64, "st.global")
-        if value.dtype not in (DType.F32, DType.S32, DType.U32):
-            raise IrError("st.global supports f32, s32, and u32")
+        if value.dtype not in (DType.F32, DType.F16, DType.S32, DType.U32):
+            raise IrError("st.global supports f32, f16, s32, and u32")
         _use(types, defined, addr)
         _use(types, defined, value)
         return
@@ -245,6 +245,80 @@ def _check_instr(
             raise IrError("st.shared supports f32, s32, and u32")
         _use(types, defined, addr)
         _use(types, defined, value)
+        return
+    if op is Op.FMA:
+        if instr.dst is None or len(instr.args) != 3:
+            raise IrError("fma needs a destination and three sources")
+        srcs = instr.args
+        if not all(isinstance(item, VReg) for item in srcs):
+            raise IrError("fma sources must be registers")
+        for reg in (instr.dst, *srcs):
+            _expect(reg, DType.F32, "fma")  # type: ignore[arg-type]
+        for reg in srcs:
+            _use(types, defined, reg)  # type: ignore[arg-type]
+        _define(types, defined, instr.dst)
+        return
+    if op in (Op.DIV, Op.MAX):
+        dst, lhs, rhs = _three_regs(instr)
+        for reg in (dst, lhs, rhs):
+            _expect(reg, DType.F32, op.value)
+        _use(types, defined, lhs)
+        _use(types, defined, rhs)
+        _define(types, defined, dst)
+        return
+    if op in (Op.SQRT, Op.EX2):
+        dst, src = _two_regs(instr)
+        _expect(dst, DType.F32, op.value)
+        _expect(src, DType.F32, op.value)
+        _use(types, defined, src)
+        _define(types, defined, dst)
+        return
+    if op is Op.CVT:
+        dst, src = _two_regs(instr)
+        pair = (src.dtype, dst.dtype)
+        if pair not in ((DType.F16, DType.F32), (DType.F32, DType.F16)):
+            raise IrError("cvt converts f16 to f32 or f32 to f16")
+        _use(types, defined, src)
+        _define(types, defined, dst)
+        return
+    if op is Op.LD_GLOBAL_V4:
+        if instr.dst is None or len(instr.extra_dsts) != 3 or len(instr.args) != 1:
+            raise IrError("ld.global.v4 needs four f32 destinations and one address")
+        addr = instr.args[0]
+        if not isinstance(addr, VReg):
+            raise IrError("ld.global.v4 address must be a register")
+        _expect(addr, DType.U64, "ld.global.v4")
+        for reg in (instr.dst, *instr.extra_dsts):
+            _expect(reg, DType.F32, "ld.global.v4")
+        _use(types, defined, addr)
+        for reg in (instr.dst, *instr.extra_dsts):
+            _define(types, defined, reg)
+        return
+    if op is Op.ST_GLOBAL_V4:
+        if instr.dst is not None or len(instr.args) != 5:
+            raise IrError("st.global.v4 takes an address and four values")
+        addr, *values = instr.args
+        if not isinstance(addr, VReg) or not all(isinstance(item, VReg) for item in values):
+            raise IrError("st.global.v4 operands must be registers")
+        _expect(addr, DType.U64, "st.global.v4")
+        for reg in values:
+            _expect(reg, DType.F32, "st.global.v4")  # type: ignore[arg-type]
+        _use(types, defined, addr)
+        for reg in values:
+            _use(types, defined, reg)  # type: ignore[arg-type]
+        return
+    if op is Op.ATOM_ADD:
+        if instr.dst is None or len(instr.args) != 2:
+            raise IrError("atom.add needs a destination, an address, and a value")
+        addr, value = instr.args
+        if not isinstance(addr, VReg) or not isinstance(value, VReg):
+            raise IrError("atom.add operands must be registers")
+        _expect(addr, DType.U64, "atom.add")
+        if value.dtype not in (DType.U32, DType.F32) or instr.dst.dtype is not value.dtype:
+            raise IrError("atom.add supports u32 and f32")
+        _use(types, defined, addr)
+        _use(types, defined, value)
+        _define(types, defined, instr.dst)
         return
     if op is Op.BAR:
         if instr.args != (0,) and instr.args != (1,) and not (

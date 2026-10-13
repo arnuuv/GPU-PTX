@@ -19,7 +19,7 @@ _IDENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*$")
 _HEX_F32 = re.compile(r"0f[0-9a-fA-F]{8}$")
 _INT = re.compile(r"-?\d+$")
 
-_PREFIXES = ("%rd", "%rs", "%r", "%f", "%p")
+_PREFIXES = ("%rd", "%rs", "%r", "%h", "%f", "%p")
 
 ALLOWED_OPS = {
     "mov.u32",
@@ -60,6 +60,23 @@ ALLOWED_OPS.update(
     for op in ("ld.global", "st.global", "ld.shared", "st.shared")
     for ty in ("f32", "s32", "u32")
 )
+ALLOWED_OPS.update(
+    {
+        "ld.global.f16",
+        "st.global.f16",
+        "ld.global.v4.f32",
+        "st.global.v4.f32",
+        "fma.rn.f32",
+        "div.rn.f32",
+        "sqrt.rn.f32",
+        "max.f32",
+        "ex2.approx.ftz.f32",
+        "cvt.f32.f16",
+        "cvt.rn.f16.f32",
+        "atom.add.u32",
+        "atom.add.f32",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -87,6 +104,7 @@ class SInst:
     pred: str | None = None
     pred_not: bool = False
     line: int = 0
+    dsts: tuple[str, ...] = ()
 
 
 @dataclass
@@ -228,7 +246,7 @@ def _block_comment(comment: str) -> tuple[int, int, int] | None:
 
 
 def _parse_reg(line: str, lineno: int) -> tuple[str, int]:
-    match = re.fullmatch(r"\.reg\s+\.(?:pred|u32|u64|s32|f32)\s+(%[A-Za-z]+)<(\d+)>", line)
+    match = re.fullmatch(r"\.reg\s+\.(?:pred|u32|u64|s32|f32|f16)\s+(%[A-Za-z]+)<(\d+)>", line)
     if match is None:
         raise ParseError(f"line {lineno}: bad register declaration {line!r}")
     prefix, count = match.group(1), int(match.group(2))
@@ -269,7 +287,16 @@ def _parse_inst(line: str, lineno: int) -> SInst:
     op, rest = parts
     if op not in ALLOWED_OPS:
         raise UnsupportedInstruction(f"line {lineno}: unsupported instruction {op}")
-    operands = [item.strip() for item in rest.split(",")]
+    operands = _split_operands(rest)
+    if op in ("ld.global.v4.f32", "st.global.v4.f32"):
+        return _parse_v4(op, operands, pred, pred_not, lineno)
+    if op.startswith("atom.add."):
+        if len(operands) != 3 or not operands[1].startswith("["):
+            raise ParseError(f"line {lineno}: bad atom {line!r}")
+        dst = _atom(operands[0], lineno)
+        if not isinstance(dst, str):
+            raise ParseError(f"line {lineno}: atom destination must be a register")
+        return SInst(op, dst, (_mem(operands[1], lineno), _atom(operands[2], lineno)), pred, pred_not, lineno)
     if op.startswith("st."):
         if len(operands) != 2 or not operands[0].startswith("["):
             raise ParseError(f"line {lineno}: bad store {line!r}")
@@ -279,6 +306,47 @@ def _parse_inst(line: str, lineno: int) -> SInst:
         raise ParseError(f"line {lineno}: instruction needs a destination register")
     srcs = tuple(_mem(item, lineno) if item.startswith("[") else _atom(item, lineno) for item in operands[1:])
     return SInst(op, dst, srcs, pred, pred_not, lineno)
+
+
+def _split_operands(rest: str) -> list[str]:
+    parts: list[str] = []
+    buf: list[str] = []
+    depth = 0
+    for char in rest:
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+        elif char == "," and depth == 0:
+            parts.append("".join(buf).strip())
+            buf = []
+            continue
+        buf.append(char)
+    tail = "".join(buf).strip()
+    if tail:
+        parts.append(tail)
+    return parts
+
+
+def _parse_v4(op: str, operands: list[str], pred, pred_not, lineno: int) -> SInst:
+    if op.startswith("ld."):
+        if len(operands) != 2:
+            raise ParseError(f"line {lineno}: v4 load needs a register list and an address")
+        regs = _reg_list(operands[0], lineno)
+        return SInst(op, regs[0], (_mem(operands[1], lineno),), pred, pred_not, lineno, dsts=regs)
+    if len(operands) != 2:
+        raise ParseError(f"line {lineno}: v4 store needs an address and a register list")
+    regs = _reg_list(operands[1], lineno)
+    return SInst(op, None, (_mem(operands[0], lineno), *regs), pred, pred_not, lineno, dsts=regs)
+
+
+def _reg_list(token: str, lineno: int) -> tuple[str, ...]:
+    if not (token.startswith("{") and token.endswith("}")):
+        raise ParseError(f"line {lineno}: expected a register list, got {token!r}")
+    regs = tuple(part.strip() for part in token[1:-1].split(","))
+    if len(regs) != 4 or not all(_REG.match(reg) for reg in regs):
+        raise ParseError(f"line {lineno}: v4 register list must contain four registers")
+    return regs
 
 
 def _mem(token: str, lineno: int) -> str:
@@ -332,6 +400,7 @@ def _regs(inst: SInst) -> list[str]:
         found.append(inst.pred)
     if isinstance(inst.dst, str) and inst.dst.startswith("%"):
         found.append(inst.dst)
+    found.extend(reg for reg in inst.dsts if reg.startswith("%"))
     for src in inst.srcs:
         if isinstance(src, str) and src.startswith("%"):
             found.append(src)

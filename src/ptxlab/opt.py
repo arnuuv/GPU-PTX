@@ -45,7 +45,7 @@ _PURE = {
     Op.LD_PARAM,
     Op.SHARED_BASE,
 }
-_SIDE = {Op.ST_GLOBAL, Op.ST_SHARED, Op.BAR}
+_SIDE = {Op.ST_GLOBAL, Op.ST_SHARED, Op.ST_GLOBAL_V4, Op.BAR, Op.ATOM_ADD}
 
 
 @dataclass(frozen=True)
@@ -382,7 +382,7 @@ def _dce(kernel: KernelIR) -> tuple[KernelIR, int]:
                     instr.dst is not None
                     and instr.dst.name not in used
                     and instr.op not in _SIDE
-                    and instr.op not in (Op.LD_GLOBAL, Op.LD_SHARED)
+                    and instr.op not in (Op.LD_GLOBAL, Op.LD_SHARED, Op.LD_GLOBAL_V4)
                 ):
                     removed += 1
                     changed = True

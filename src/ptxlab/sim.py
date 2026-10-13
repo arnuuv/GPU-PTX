@@ -33,6 +33,7 @@ Functional semantics, deliberately narrower than an NVIDIA GPU:
 
 from __future__ import annotations
 
+import math
 import struct
 import sys
 from collections import Counter
@@ -387,6 +388,45 @@ def _exec(
         write(bool(src(0)) or bool(src(1)))
     elif op == "not.pred":
         write(not bool(src(0)))
+    elif op == "fma.rn.f32":
+        write(_fma(src(0), src(1), src(2)))
+    elif op == "div.rn.f32":
+        write(_fdiv(src(0), src(1)))
+    elif op == "sqrt.rn.f32":
+        write(_fsqrt(src(0)))
+    elif op == "max.f32":
+        write(_fmax(src(0), src(1)))
+    elif op == "ex2.approx.ftz.f32":
+        write(_ex2(src(0)))
+    elif op == "cvt.f32.f16":
+        write(float(np.float32(np.float16(src(0)))))
+    elif op == "cvt.rn.f16.f32":
+        write(float(np.float16(np.float32(src(0)))))
+    elif op == "ld.global.v4.f32":
+        addr = _as_u64(src(0))
+        if addr % 16:
+            raise MemoryFault(f"misaligned v4 address {addr:#x}")
+        raw = mem.read(addr, 16)
+        values = np.frombuffer(raw, dtype=np.float32).copy()
+        targets = inst.dsts or (inst.dst,)
+        for reg, value in zip(targets, values, strict=True):
+            warp.set(reg, lane, float(value))
+        return addr
+    elif op == "st.global.v4.f32":
+        addr = _as_u64(src(0))
+        if addr % 16:
+            raise MemoryFault(f"misaligned v4 address {addr:#x}")
+        payload = np.array([np.float32(src(i + 1)) for i in range(4)], dtype=np.float32)
+        mem.write(addr, payload.tobytes())
+        return addr
+    elif op.startswith("atom.add."):
+        kind = op.rsplit(".", 1)[1]
+        addr = _as_u64(src(0))
+        old = _load(mem.read, addr, kind)
+        updated = _as_u32(old) + _as_u32(src(1)) if kind == "u32" else _fadd(old, src(1))
+        _store(mem.write, addr, updated, kind)
+        write(old)
+        return addr
     elif op.startswith("ld.param."):
         write(params[str(inst.srcs[0])])
     elif op.startswith("ld.global."):
@@ -470,8 +510,8 @@ def _bind_args(program: Program, args: dict[str, object], mem: _GlobalMem):
         if param.kind == "u64":
             if not isinstance(value, np.ndarray):
                 raise LaunchError(f"pointer parameter {param.name} expects a numpy array")
-            if value.dtype not in (np.float32, np.int32, np.uint32):
-                raise LaunchError(f"{param.name} uses {value.dtype}, which is outside f32/s32/u32")
+            if value.dtype not in (np.float32, np.float16, np.int32, np.uint32):
+                raise LaunchError(f"{param.name} uses {value.dtype}, which is outside f32/f16/s32/u32")
             flat = np.ascontiguousarray(value)
             base, buf = mem.alloc(flat.tobytes())
             params[param.name] = base
@@ -568,14 +608,22 @@ def _mask_of(lanes: list[int]) -> int:
 
 
 def _load(read, addr: int, kind: str) -> object:
-    if addr % 4:
+    size = 2 if kind == "f16" else 4
+    if addr % size:
         raise MemoryFault(f"misaligned {kind} address {addr:#x}")
-    return struct.unpack(_FMT[kind], read(addr, 4))[0]
+    data = read(addr, size)
+    if kind == "f16":
+        return float(np.frombuffer(data, dtype=np.float16)[0])
+    return struct.unpack(_FMT[kind], data)[0]
 
 
 def _store(write, addr: int, value: object, kind: str) -> None:
-    if addr % 4:
+    size = 2 if kind == "f16" else 4
+    if addr % size:
         raise MemoryFault(f"misaligned {kind} address {addr:#x}")
+    if kind == "f16":
+        write(addr, np.float16(value).tobytes())
+        return
     if kind == "f32":
         packed = struct.pack(_FMT[kind], float(np.float32(value)))
     elif kind == "s32":
@@ -620,6 +668,46 @@ def _fsub(left: object, right: object) -> float:
 
 def _fmul(left: object, right: object) -> float:
     return float(np.multiply(np.float32(left), np.float32(right), dtype=np.float32))
+
+
+def _fma(left: object, mid: object, right: object) -> float:
+    return float(np.float32(math.fma(float(np.float32(left)), float(np.float32(mid)), float(np.float32(right)))))
+
+
+def _fdiv(left: object, right: object) -> float:
+    return float(np.divide(np.float32(left), np.float32(right), dtype=np.float32))
+
+
+def _fsqrt(value: object) -> float:
+    return float(np.sqrt(np.float32(value)))
+
+
+def _fmax(left: object, right: object) -> float:
+    a = np.float32(left)
+    b = np.float32(right)
+    if np.isnan(a):
+        return float(b)
+    if np.isnan(b):
+        return float(a)
+    return float(np.maximum(a, b))
+
+
+def _ex2(value: object) -> float:
+    """Simulator stand-in for ``ex2.approx.ftz.f32``.
+
+    Subnormal inputs and outputs flush to zero. The finite result is
+    ``exp2`` rounded to binary32. That is not NVIDIA's special-function
+    approximation, so device results can differ.
+    """
+
+    number = np.float32(value)
+    tiny = np.finfo(np.float32).tiny
+    if number != 0 and abs(float(number)) < tiny:
+        number = np.float32(0)
+    result = np.float32(np.exp2(number))
+    if result != 0 and abs(float(result)) < tiny:
+        result = np.float32(0)
+    return float(result)
 
 
 def _compare(cmp: str, left: int, right: int) -> bool:

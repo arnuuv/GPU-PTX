@@ -17,6 +17,12 @@ class Op(Enum):
     MUL = "mul"
     MUL_WIDE = "mul_wide"
     MAD_LO = "mad_lo"
+    FMA = "fma"
+    DIV = "div"
+    SQRT = "sqrt"
+    MAX = "max"
+    EX2 = "ex2"
+    CVT = "cvt"
     SHR = "shr"
     CMP = "cmp"
     AND_PRED = "and_pred"
@@ -28,6 +34,9 @@ class Op(Enum):
     LD_PARAM = "ld_param"
     LD_GLOBAL = "ld_global"
     ST_GLOBAL = "st_global"
+    LD_GLOBAL_V4 = "ld_global_v4"
+    ST_GLOBAL_V4 = "st_global_v4"
+    ATOM_ADD = "atom_add"
     SHARED_BASE = "shared_base"
     LD_SHARED = "ld_shared"
     ST_SHARED = "st_shared"
@@ -103,6 +112,7 @@ class Instr:
     cmp: str | None = None
     dim: str | None = None
     symbol: str | None = None
+    extra_dsts: tuple[VReg, ...] = ()
 
 
 @dataclass

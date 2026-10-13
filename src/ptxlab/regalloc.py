@@ -79,6 +79,7 @@ def _interference(kernel: KernelIR) -> dict[str, set[str]]:
                     used.add(reg.name)
             if instr.dst is not None:
                 defined.add(instr.dst.name)
+            defined.update(reg.name for reg in instr.extra_dsts)
         if isinstance(block.term, Cbr) and block.term.pred.name not in defined:
             used.add(block.term.pred.name)
         use[block.label] = used
@@ -105,10 +106,14 @@ def _interference(kernel: KernelIR) -> dict[str, set[str]]:
         clique(live)
         for instr in reversed(block.instrs):
             uses = {reg.name for reg in _uses(instr)}
-            if instr.dst is not None:
+            defined = [instr.dst.name] if instr.dst is not None else []
+            defined.extend(reg.name for reg in instr.extra_dsts)
+            for left, right in zip(defined, defined[1:]):
+                link(left, right)
+            for name in defined:
                 for other in uses | live:
-                    link(instr.dst.name, other)
-                live.discard(instr.dst.name)
+                    link(name, other)
+                live.discard(name)
             live |= uses
             clique(live)
         _ = by_label
@@ -131,4 +136,5 @@ def _mentioned(instr: Instr) -> list[VReg]:
     found = _uses(instr)
     if instr.dst is not None:
         found.append(instr.dst)
+    found.extend(instr.extra_dsts)
     return found

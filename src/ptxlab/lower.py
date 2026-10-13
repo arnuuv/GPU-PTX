@@ -5,17 +5,20 @@ from __future__ import annotations
 from ptxlab.dsl import (
     ArrayRef,
     AssignStmt,
+    AtomExpr,
     BarrierStmt,
     BinExpr,
     CmpExpr,
     ConstExpr,
     Expr,
+    FmaExpr,
     ForStmt,
     IfStmt,
     IndexExpr,
     Kernel,
     LoadExpr,
     LoadSharedExpr,
+    LoadV4Stmt,
     MadExpr,
     PredExpr,
     ScalarExpr,
@@ -23,6 +26,8 @@ from ptxlab.dsl import (
     ShrExpr,
     StoreSharedStmt,
     StoreStmt,
+    StoreV4Stmt,
+    UnaryExpr,
     VarExpr,
 )
 from ptxlab.dtype import DType
@@ -145,6 +150,18 @@ class _Lowerer:
         if isinstance(stmt, BarrierStmt):
             self._emit(Instr(Op.BAR, None, (stmt.bar_id,)))
             return
+        if isinstance(stmt, LoadV4Stmt):
+            array = self.arrays[stmt.array]
+            addr = self._global_addr(array.name, self._expr(stmt.index), array.dtype, nbytes=16)
+            dests = [self._local(name, DType.F32) for name in stmt.names]
+            self._emit(Instr(Op.LD_GLOBAL_V4, dests[0], (addr,), extra_dsts=tuple(dests[1:])))
+            return
+        if isinstance(stmt, StoreV4Stmt):
+            array = self.arrays[stmt.array]
+            addr = self._global_addr(array.name, self._expr(stmt.index), array.dtype, nbytes=16)
+            values = tuple(self._expr(value) for value in stmt.values)
+            self._emit(Instr(Op.ST_GLOBAL_V4, None, (addr, *values)))
+            return
         raise LoweringError(f"unknown statement {type(stmt).__name__}")
 
     def _expr(self, expr: Expr, dest: VReg | None = None) -> VReg:
@@ -171,7 +188,7 @@ class _Lowerer:
             lhs = self._expr(expr.left)
             rhs = self._expr(expr.right)
             dest = self._tmp(expr.dtype)
-            op = {"add": Op.ADD, "sub": Op.SUB, "mul": Op.MUL}[expr.op]
+            op = {"add": Op.ADD, "sub": Op.SUB, "mul": Op.MUL, "div": Op.DIV, "max": Op.MAX}[expr.op]
             self._emit(Instr(op, dest, (lhs, rhs), dtype=expr.dtype))
             return dest
         if isinstance(expr, CmpExpr):
@@ -216,6 +233,32 @@ class _Lowerer:
             dest = self._tmp(expr.dtype)
             self._emit(Instr(Op.MAD_LO, dest, (a, b, c), dtype=expr.dtype))
             return dest
+        if isinstance(expr, FmaExpr):
+            a = self._expr(expr.a)
+            b = self._expr(expr.b)
+            c = self._expr(expr.c)
+            dest = self._tmp(DType.F32)
+            self._emit(Instr(Op.FMA, dest, (a, b, c), dtype=DType.F32))
+            return dest
+        if isinstance(expr, UnaryExpr):
+            src = self._expr(expr.value)
+            dest = self._tmp(expr.dtype)
+            if expr.op == "sqrt":
+                self._emit(Instr(Op.SQRT, dest, (src,), dtype=DType.F32))
+            elif expr.op == "ex2":
+                self._emit(Instr(Op.EX2, dest, (src,), dtype=DType.F32))
+            elif expr.op in ("cvt_f32", "cvt_f16"):
+                self._emit(Instr(Op.CVT, dest, (src,)))
+            else:
+                raise LoweringError(f"unknown unary {expr.op}")
+            return dest
+        if isinstance(expr, AtomExpr):
+            array = self.arrays[expr.array]
+            addr = self._global_addr(array.name, self._linear(array.shape, expr.indices), array.dtype)
+            value = self._expr(expr.value)
+            dest = self._tmp(expr.dtype)
+            self._emit(Instr(Op.ATOM_ADD, dest, (addr, value)))
+            return dest
         if isinstance(expr, ShrExpr):
             value = self._expr(expr.value)
             amount = self._expr(expr.amount)
@@ -247,10 +290,10 @@ class _Lowerer:
                 acc = self._mul(acc, reg)
         return acc
 
-    def _global_addr(self, name: str, linear: VReg, dtype: DType) -> VReg:
+    def _global_addr(self, name: str, linear: VReg, dtype: DType, nbytes: int | None = None) -> VReg:
         base = self._tmp(DType.U64)
         self._emit(Instr(Op.LD_PARAM, base, symbol=name))
-        return self._offset_addr(base, linear, dtype.size_bytes, wide=True)
+        return self._offset_addr(base, linear, nbytes if nbytes is not None else dtype.size_bytes, wide=True)
 
     def _shared_addr(self, name: str, linear: VReg, dtype: DType) -> VReg:
         base = self._tmp(DType.U32)

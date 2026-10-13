@@ -95,8 +95,8 @@ def test_coverage_kernel_parses_optional_ops() -> None:
 
 
 def test_unsupported_instruction_is_rejected() -> None:
-    text = emit(_vector_add()).replace("ld.global.f32", "ld.global.v4.f32", 1)
-    with pytest.raises(UnsupportedInstruction, match="ld.global.v4.f32"):
+    text = emit(_vector_add()).replace("ld.global.f32", "ld.global.v2.f32", 1)
+    with pytest.raises(UnsupportedInstruction, match="ld.global.v2.f32"):
         parse(text)
 
 

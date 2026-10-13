@@ -64,6 +64,8 @@ def check_shapes(kernel: Kernel, args: dict[str, object]) -> None:
             raise LaunchError(f"{param.name} has {value.size} elements, shape expects {extent}")
         if param.dtype is DType.F32 and value.dtype != np.float32:
             raise LaunchError(f"{param.name} expects float32")
+        if param.dtype is DType.F16 and value.dtype != np.float16:
+            raise LaunchError(f"{param.name} expects float16")
         if param.dtype is DType.S32 and value.dtype != np.int32:
             raise LaunchError(f"{param.name} expects int32")
         if param.dtype is DType.U32 and value.dtype != np.uint32:

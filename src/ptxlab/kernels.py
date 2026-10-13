@@ -7,6 +7,8 @@ array and the tree offsets are static. Tiled GEMM uses a compile-time square til
 
 from __future__ import annotations
 
+import numpy as np
+
 from ptxlab.dsl import Kernel, KernelBuilder
 from ptxlab.dtype import DType
 
@@ -32,6 +34,59 @@ def vector_mul() -> Kernel:
     i = k.let("i", k.gid("x"))
     with k.when(i < n):
         k.store(c, (i,), k.load(a, (i,)) * k.load(b, (i,)))
+    return k.build()
+
+
+def vector_add_f16() -> Kernel:
+    k = KernelBuilder("vector_add_f16")
+    a = k.array("a", DType.F16, ("n",))
+    b = k.array("b", DType.F16, ("n",))
+    c = k.array("c", DType.F16, ("n",))
+    n = k.scalar("n", DType.U32)
+    i = k.let("i", k.gid("x"))
+    with k.when(i < n):
+        total = k.to_f32(k.load(a, (i,))) + k.to_f32(k.load(b, (i,)))
+        k.store(c, (i,), k.to_f16(total))
+    return k.build()
+
+
+def vector_add_v4() -> Kernel:
+    """One thread owns four consecutive f32 values. ``nvec`` is ``n / 4``."""
+
+    k = KernelBuilder("vector_add_v4")
+    a = k.array("a", DType.F32, ("n",))
+    b = k.array("b", DType.F32, ("n",))
+    c = k.array("c", DType.F32, ("n",))
+    k.scalar("n", DType.U32)
+    nvec = k.scalar("nvec", DType.U32)
+    i = k.let("i", k.gid("x"))
+    with k.when(i < nvec):
+        a0, a1, a2, a3 = k.load_v4(a, i)
+        b0, b1, b2, b3 = k.load_v4(b, i)
+        k.store_v4(c, i, (a0 + b0, a1 + b1, a2 + b2, a3 + b3))
+    return k.build()
+
+
+def fma_saxpy() -> Kernel:
+    k = KernelBuilder("fma_saxpy")
+    x = k.array("x", DType.F32, ("n",))
+    y = k.array("y", DType.F32, ("n",))
+    z = k.array("z", DType.F32, ("n",))
+    alpha = k.scalar("alpha", DType.F32)
+    n = k.scalar("n", DType.U32)
+    i = k.let("i", k.gid("x"))
+    with k.when(i < n):
+        k.store(z, (i,), k.fma(alpha, k.load(x, (i,)), k.load(y, (i,))))
+    return k.build()
+
+
+def atomic_count() -> Kernel:
+    k = KernelBuilder("atomic_count")
+    counter = k.array("counter", DType.U32, (1,))
+    n = k.scalar("n", DType.U32)
+    i = k.let("i", k.gid("x"))
+    with k.when(i < n):
+        k.let("old", k.atomic_add(counter, (0,), k.u32(1)))
     return k.build()
 
 
@@ -111,4 +166,103 @@ def tiled_matmul(tile: int = 16) -> Kernel:
         k.barrier()
     with k.when(k.land(row < rows, col < cols)):
         k.store(out, (row, col), acc)
+    return k.build()
+
+
+def _require_block(block_size: int) -> None:
+    if block_size < 1 or block_size > 1024 or block_size & (block_size - 1):
+        raise ValueError("block size must be a power of two in 1..1024")
+
+
+def _tree(k: KernelBuilder, smem, tx, block_size: int, combine) -> None:
+    offset = block_size // 2
+    while offset:
+        with k.when(tx < k.u32(offset)):
+            left = k.load_shared(smem, (tx,))
+            right = k.load_shared(smem, (tx + k.u32(offset),))
+            k.store_shared(smem, (tx,), combine(left, right))
+        k.barrier()
+        offset //= 2
+
+
+def layer_norm(block_size: int) -> Kernel:
+    """One block normalises one row of ``block_size`` f32 values."""
+
+    _require_block(block_size)
+    k = KernelBuilder("layer_norm", expect_block=(block_size, 1, 1))
+    x = k.array("x", DType.F32, ("rows", block_size))
+    gamma = k.array("gamma", DType.F32, (block_size,))
+    beta = k.array("beta", DType.F32, (block_size,))
+    y = k.array("y", DType.F32, ("rows", block_size))
+    rows = k.scalar("rows", DType.U32)
+    eps = k.scalar("eps", DType.F32)
+    smem = k.shared("sm", DType.F32, (block_size,))
+    tx = k.let("tx", k.tid("x"))
+    row = k.let("row", k.ctaid("x"))
+    xv = k.let("xv", k.f32(0))
+    with k.when(row < rows):
+        k.assign(xv, k.load(x, (row, tx)))
+    k.store_shared(smem, (tx,), xv)
+    k.barrier()
+    _tree(k, smem, tx, block_size, lambda left, right: left + right)
+    mean = k.let("mean", k.div(k.load_shared(smem, (0,)), k.f32(float(block_size))))
+    centered = k.let("centered", xv - mean)
+    k.store_shared(smem, (tx,), centered * centered)
+    k.barrier()
+    _tree(k, smem, tx, block_size, lambda left, right: left + right)
+    inv = k.let("inv", k.div(k.f32(1), k.sqrt(k.div(k.load_shared(smem, (0,)), k.f32(float(block_size))) + eps)))
+    with k.when(row < rows):
+        scale = centered * inv * k.load(gamma, (tx,))
+        k.store(y, (row, tx), scale + k.load(beta, (tx,)))
+    return k.build()
+
+
+def rms_norm(block_size: int) -> Kernel:
+    _require_block(block_size)
+    k = KernelBuilder("rms_norm", expect_block=(block_size, 1, 1))
+    x = k.array("x", DType.F32, ("rows", block_size))
+    weight = k.array("weight", DType.F32, (block_size,))
+    y = k.array("y", DType.F32, ("rows", block_size))
+    rows = k.scalar("rows", DType.U32)
+    eps = k.scalar("eps", DType.F32)
+    smem = k.shared("sm", DType.F32, (block_size,))
+    tx = k.let("tx", k.tid("x"))
+    row = k.let("row", k.ctaid("x"))
+    xv = k.let("xv", k.f32(0))
+    with k.when(row < rows):
+        k.assign(xv, k.load(x, (row, tx)))
+    k.store_shared(smem, (tx,), xv * xv)
+    k.barrier()
+    _tree(k, smem, tx, block_size, lambda left, right: left + right)
+    inv = k.let("inv", k.div(k.f32(1), k.sqrt(k.div(k.load_shared(smem, (0,)), k.f32(float(block_size))) + eps)))
+    with k.when(row < rows):
+        k.store(y, (row, tx), xv * inv * k.load(weight, (tx,)))
+    return k.build()
+
+
+def softmax(block_size: int) -> Kernel:
+    """Row softmax. ``ex2.approx.ftz.f32`` is evaluated as flushed ``exp2`` in the interpreter."""
+
+    _require_block(block_size)
+    log2e = float(np.float32(np.log2(np.e)))
+    k = KernelBuilder("softmax", expect_block=(block_size, 1, 1))
+    x = k.array("x", DType.F32, ("rows", block_size))
+    y = k.array("y", DType.F32, ("rows", block_size))
+    rows = k.scalar("rows", DType.U32)
+    smem = k.shared("sm", DType.F32, (block_size,))
+    tx = k.let("tx", k.tid("x"))
+    row = k.let("row", k.ctaid("x"))
+    xv = k.let("xv", k.f32(0))
+    with k.when(row < rows):
+        k.assign(xv, k.load(x, (row, tx)))
+    k.store_shared(smem, (tx,), xv)
+    k.barrier()
+    _tree(k, smem, tx, block_size, lambda left, right: k.maximum(left, right))
+    peak = k.let("peak", k.load_shared(smem, (0,)))
+    expo = k.let("expo", k.ex2((xv - peak) * k.f32(log2e)))
+    k.store_shared(smem, (tx,), expo)
+    k.barrier()
+    _tree(k, smem, tx, block_size, lambda left, right: left + right)
+    with k.when(row < rows):
+        k.store(y, (row, tx), k.div(expo, k.load_shared(smem, (0,))))
     return k.build()

@@ -131,6 +131,26 @@ class ShrExpr(Expr):
     amount: Expr
 
 
+@dataclass(frozen=True, eq=False)
+class FmaExpr(Expr):
+    a: Expr
+    b: Expr
+    c: Expr
+
+
+@dataclass(frozen=True, eq=False)
+class UnaryExpr(Expr):
+    op: str
+    value: Expr
+
+
+@dataclass(frozen=True, eq=False)
+class AtomExpr(Expr):
+    array: str
+    indices: tuple[Expr, ...]
+    value: Expr
+
+
 @dataclass(frozen=True)
 class ArrayRef:
     name: str
@@ -187,7 +207,21 @@ class BarrierStmt:
     bar_id: int = 0
 
 
-Stmt = AssignStmt | StoreStmt | StoreSharedStmt | IfStmt | ForStmt | BarrierStmt
+@dataclass
+class LoadV4Stmt:
+    array: str
+    index: Expr
+    names: tuple[str, str, str, str]
+
+
+@dataclass
+class StoreV4Stmt:
+    array: str
+    index: Expr
+    values: tuple[Expr, Expr, Expr, Expr]
+
+
+Stmt = AssignStmt | StoreStmt | StoreSharedStmt | IfStmt | ForStmt | BarrierStmt | LoadV4Stmt | StoreV4Stmt
 
 
 @dataclass
@@ -256,11 +290,12 @@ class KernelBuilder:
         self._body: list[Stmt] = []
         self._stack: list[list[Stmt]] = [self._body]
         self._locals: dict[str, DType] = {}
+        self._seq = 0
 
     def array(self, name: str, dtype: DType, shape: tuple[str | int, ...]) -> ArrayRef:
         _check_name(name)
-        if dtype not in (DType.F32, DType.S32, DType.U32):
-            raise LoweringError("array elements must be f32, s32, or u32")
+        if dtype not in (DType.F32, DType.F16, DType.S32, DType.U32):
+            raise LoweringError("array elements must be f32, f16, s32, or u32")
         if not shape:
             raise LoweringError("array parameters need a shape; use scalar() for rank 0")
         dims = tuple(_dim(item) for item in shape)
@@ -351,6 +386,48 @@ class KernelBuilder:
         args = tuple(_coerce(item, dtype) for item in (a, b, c))
         return MadExpr(dtype, *args)
 
+    def fma(self, a: Expr | int | float, b: Expr | int | float, c: Expr | int | float) -> FmaExpr:
+        return FmaExpr(DType.F32, _coerce(a, DType.F32), _coerce(b, DType.F32), _coerce(c, DType.F32))
+
+    def div(self, left: Expr | int | float, right: Expr | int | float) -> BinExpr:
+        return BinExpr(DType.F32, "div", _coerce(left, DType.F32), _coerce(right, DType.F32))
+
+    def sqrt(self, value: Expr | int | float) -> UnaryExpr:
+        return UnaryExpr(DType.F32, "sqrt", _coerce(value, DType.F32))
+
+    def maximum(self, left: Expr | int | float, right: Expr | int | float) -> BinExpr:
+        return BinExpr(DType.F32, "max", _coerce(left, DType.F32), _coerce(right, DType.F32))
+
+    def ex2(self, value: Expr | int | float) -> UnaryExpr:
+        return UnaryExpr(DType.F32, "ex2", _coerce(value, DType.F32))
+
+    def to_f32(self, value: Expr) -> UnaryExpr:
+        if value.dtype is not DType.F16:
+            raise LoweringError("to_f32 expects f16")
+        return UnaryExpr(DType.F32, "cvt_f32", value)
+
+    def to_f16(self, value: Expr) -> UnaryExpr:
+        if value.dtype is not DType.F32:
+            raise LoweringError("to_f16 expects f32")
+        return UnaryExpr(DType.F16, "cvt_f16", value)
+
+    def atomic_add(self, array: ArrayRef, indices: tuple[Expr | int, ...], value: Expr) -> AtomExpr:
+        if array.dtype not in (DType.U32, DType.F32) or value.dtype is not array.dtype:
+            raise LoweringError("atomic_add supports u32 and f32 arrays")
+        return AtomExpr(array.dtype, array.name, _indices(array.name, array.shape, indices), value)
+
+    def load_v4(self, array: ArrayRef, index: Expr | int) -> tuple[VarExpr, VarExpr, VarExpr, VarExpr]:
+        if array.dtype is not DType.F32 or len(array.shape) != 1:
+            raise LoweringError("load_v4 supports 1D f32 arrays")
+        names = tuple(self._fresh(DType.F32) for _ in range(4))
+        self._emit(LoadV4Stmt(array.name, _coerce(index, DType.U32), names))  # type: ignore[arg-type]
+        return tuple(VarExpr(DType.F32, name) for name in names)  # type: ignore[return-value]
+
+    def store_v4(self, array: ArrayRef, index: Expr | int, values: tuple[Expr, Expr, Expr, Expr]) -> None:
+        if array.dtype is not DType.F32 or any(value.dtype is not DType.F32 for value in values):
+            raise LoweringError("store_v4 expects four f32 values")
+        self._emit(StoreV4Stmt(array.name, _coerce(index, DType.U32), values))
+
     def shr(self, value: Expr | int, amount: Expr | int) -> ShrExpr:
         return ShrExpr(DType.U32, _coerce(value, DType.U32), _coerce(amount, DType.U32))
 
@@ -418,6 +495,12 @@ class KernelBuilder:
 
     def _emit(self, stmt: Stmt) -> None:
         self._stack[-1].append(stmt)
+
+    def _fresh(self, dtype: DType) -> str:
+        self._seq += 1
+        name = f"vec{self._seq}"
+        self._locals[name] = dtype
+        return name
 
 
 def _arith(op: str, left: Expr | int | float, right: Expr | int | float) -> BinExpr:
